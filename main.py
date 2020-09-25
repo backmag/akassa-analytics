@@ -1,14 +1,8 @@
-
-
-
-
-
-
-
+from tkinter import Tk, Label, Button
 
 
 def main(): 
-	
+
 
 
 
