@@ -6,6 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 import matplotlib.animation as animation
 from matplotlib import style
+style.use("ggplot")
 
 import urllib
 import json
@@ -20,12 +21,14 @@ from datetime import datetime
 
 import pandas as pd
 import pandas_datareader.data as web
+pd.plotting.register_matplotlib_converters() # For plotting dates with matplotlib
 import numpy as np
 
 
 LARGE_FONT = ("Avenir", 12)
 MID_FONT = ("Avenir", 8)
-style.use("ggplot")
+CURRENT_TICKER = "AAPL"
+
 
 
 f = Figure(figsize=(5,5), dpi=100)
@@ -119,14 +122,21 @@ class DataHandler():
 				df.index = pd.to_datetime(df.index)
 				df.to_csv(single_path)
 
-
+	def get_stock_df(self, ticker): 
+		path = self.stock_path / "".join([ticker, ".csv"])
+		if not path.exists(): 
+			self.download_single_stock(ticker)
+		df = pd.read_csv(path, index_col=0)
+		df.index = pd.to_datetime(df.index)
+		return df
 
 
 class AnalyticGUI(tk.Tk):
 
-	def __init__(self, *args, **kwargs): 
+	def __init__(self, datahandler ,*args, **kwargs): 
 		tk.Tk.__init__(self,*args,**kwargs)
 
+		self.datahandler = datahandler
 		tk.Tk.iconbitmap(self, default="./img/widget.ico")
 		tk.Tk.wm_title(self, "A-kassa Analytics")
 
@@ -139,7 +149,7 @@ class AnalyticGUI(tk.Tk):
 
 		self.frames = {}
 
-		for F in [StartPage, PageOne, PageTwo, PageThree]: 
+		for F in [StartPage, HomePage, PageTwo, PageThree]: 
 
 			frame = F(container, self) 
 			self.frames[F] = frame
@@ -162,20 +172,20 @@ class StartPage(tk.Frame):
 		label_small = tk.Label(self, text="""There is neither safety nor guaranteed profits included in this software. \n Please contact https://www.kommunalsakassa.se for such endeavors.""", font=MID_FONT) 
 		label_small.pack(pady=10, padx=10)
 
-		agree_button = ttk.Button(self, text='Agree', command=lambda: controller.show_frame(PageOne))
+		agree_button = ttk.Button(self, text='Agree', command=lambda: controller.show_frame(HomePage))
 		agree_button.pack()
 		disagree_button = ttk.Button(self, text='Disagree', command=controller.destroy)
 		disagree_button.pack()
 
 
 
-class PageOne(tk.Frame): 
+class HomePage(tk.Frame): 
 	def __init__(self, parent, controller):
 		tk.Frame.__init__(self,parent)
-		label = ttk.Label(self, text='Page One', font=LARGE_FONT)
+		label = ttk.Label(self, text='Home Page', font=LARGE_FONT)
 		label.pack(pady=10, padx=10)
 
-		button = ttk.Button(self, text= 'Start page', command=lambda: controller.show_frame(StartPage))
+		button = ttk.Button(self, text= 'Graph', command=lambda: controller.show_frame(PageThree))
 		button.pack() 
 
 class PageTwo(tk.Frame): 
@@ -210,12 +220,18 @@ class PageThree(tk.Frame):
 		toolbar.update()
 		canvas._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
+		d = controller.datahandler.get_stock_df(CURRENT_TICKER)['Adj Close']
+		a.plot(d)
 
-# app = AnalyticGUI()
-# ani = animation.FuncAnimation(f, animate, interval=1000)
-# app.mainloop()
+		
+
+
+
 
 
 start = datetime(2000,1,1)
 end = datetime(2010,1,1)
 dh = DataHandler(start,end) 
+app = AnalyticGUI(dh)
+ani = animation.FuncAnimation(f, animate, interval=1000)
+app.mainloop()
