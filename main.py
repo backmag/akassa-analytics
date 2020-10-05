@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import matplotlib
 matplotlib.use("TkAgg")
+matplotlib.rc('lines', linewidth=0.5)
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 import matplotlib.animation as animation
@@ -17,7 +18,6 @@ import os
 import requests
 import pickle
 
-
 import bs4 as bs
 from pathlib import Path
 from datetime import datetime
@@ -32,7 +32,10 @@ LARGE_FONT = ("Avenir", 12)
 MID_FONT = ("Avenir", 10)
 SMALL_FONT = ("Avenir", 8)
 
-COLORS = ["#0093b2","#00547a", "#83a05d", "#848283", "#c9beb4"]
+MAIN_COLORS = ["#0093b2","#00547a", "#83a05d", "#848283", "#c9beb4"]
+SMA_COLORS = ["#ff0000", "#f88fa7","#a38b14"]
+EMA_COLORS = ["#0013ff","#2e8855","#00ffe4"]
+
 
 DATAHANDLER = None 
 
@@ -41,16 +44,13 @@ DATAHANDLER = None
 f = plt.figure()
 
 # Global variables 
-exchange = "EX1"
-globalCounter = 9000
-startDate = datetime(2010,1,1)
+startDate = datetime(2018,1,1)
 endDate = datetime.today() 
 topIndicator = "none"
 midIndicators = "none"
 lowIndicator = "none"
-EMAs = []
-SMAs = []
-currentTickers = ["AAPL"]
+currentTickers = ['AAPL'] # Just a standard starting-ticker to show. 
+
 reloadQueued = True
 
 def addBottomIndicator(name): 
@@ -62,7 +62,7 @@ def addBottomIndicator(name):
 		globalCounter = 9000
 	elif name == 'rsi': 
 		rsiQ = tk.Tk()
-		rsiQ.wm_title('Periods?')
+		rsiQ.wm_title('Set parameter')
 		label = ttk.Label(rsiQ, text = "Choose how many periods you want each RSI calculation to consider.")
 		label.pack(side="top", fill="x", pady=10)
 
@@ -96,22 +96,23 @@ def addBottomIndicator(name):
 
 def addMidIndicators(name): 
 	global midIndicators
-	global globalCounter
+	global reloadQueued
 
 	if not name == "none": 
 		if midIndicators == "none": 
 			if name == "sma":
 				midIQ = tk.Tk() 
-				midIQ.wm_title("Periods")
-				label = ttk.Label(midIQ, text="Choose how many periods for the SMA")
-				label.pack(side="top", fill="x", pady=10)
+				midIQ.wm_title('Set parameter')
+				midIQ.iconbitmap("./img/widget.ico")
+				label = ttk.Label(midIQ, text="Choose a window size for the SMA.")
+				label.pack(side="top", fill="x", pady=10, padx=30)
 				e = ttk.Entry(midIQ) 
 				e.insert(0, 10)
 				e.pack()
 				e.focus_set() 
 				def callback(): 
 					global midIndicators
-					global globalCounter
+					global reloadQueued
 
 					midIndicators = []
 					periods = (e.get())
@@ -120,7 +121,7 @@ def addMidIndicators(name):
 					group.append(int(periods))
 					midIndicators.append(group)
 					globalCounter = 9000
-					print("Middle indicators set to:",midIndicators)
+					reloadQueued = True
 					midIQ.destroy()
 
 				b = ttk.Button(midIQ, text="Submit", width=10, command=callback)
@@ -129,26 +130,30 @@ def addMidIndicators(name):
 
 			if name == "ema":
 				midIQ = tk.Tk() 
-				midIQ.wm_title("Periods")
-				label = ttk.Label(midIQ, text="Choose how many periods for the EMA")
-				label.pack(side="top", fill="x", pady=10)
+				midIQ.wm_title('Set parameter')
+				midIQ.iconbitmap("./img/widget.ico")
+				label = ttk.Label(midIQ, text="Choose a smoothing factor alpha between 0 and 1.")
+				label.pack(side="top", fill="x", pady=10, padx=10)
 				e = ttk.Entry(midIQ) 
-				e.insert(0, 10)
+				e.insert(0, 0.5)
 				e.pack()
 				e.focus_set() 
 				def callback(): 
 					global midIndicators
-					global globalCounter
+					global reloadQueued
 
 					midIndicators = []
-					periods = (e.get())
-					group = []
-					group.append('ema')
-					group.append(int(periods))
-					midIndicators.append(group)
-					globalCounter = 9000
-					print("Middle indicators set to:",midIndicators)
-					midIQ.destroy()
+					alpha = float(e.get())
+					if alpha < 0 or alpha > 1: 
+						popupmsg("Alpha must be between 0 and 1.")
+					else: 
+						group = []
+						group.append('ema')
+						group.append(alpha)
+						midIndicators.append(group)
+						globalCounter = 9000
+						reloadQueued = True
+						midIQ.destroy()
 
 				b = ttk.Button(midIQ, text="Submit", width=10, command=callback)
 				b.pack()
@@ -156,55 +161,66 @@ def addMidIndicators(name):
 		else: 
 			if name == "sma": 
 				midIQ = tk.Tk() 
-				midIQ.wm_title("Periods")
-				label = ttk.Label(midIQ, text="Choose how many periods for the SMA")
-				label.pack(side="top", fill="x", pady=10)
+				midIQ.wm_title('Set parameter')
+				midIQ.iconbitmap("./img/widget.ico")
+				label = ttk.Label(midIQ, text="Choose a window size for the SMA.")
+				label.pack(side="top", fill="x", pady=10, padx=30)
 				e = ttk.Entry(midIQ) 
 				e.insert(0, 10)
 				e.pack()
 				e.focus_set() 
 				def callback(): 
 					global midIndicators
-					global globalCounter
+					global reloadQueued
 
 					periods = (e.get())
-					group = []
-					group.append('sma')
-					group.append(int(periods))
-					midIndicators.append(group)
-					globalCounter = 9000
-					print("Middle indicators set to:",midIndicators)
-					midIQ.destroy()
+					if not ['sma', int(periods)] in midIndicators: 
+						group = []
+						group.append('sma')
+						group.append(int(periods))
+						midIndicators.append(group)
+						reloadQueued = True
+						midIQ.destroy()
+					else: 
+						midIQ.destroy()
+						popupmsg("You already have that window.")
 
 				b = ttk.Button(midIQ, text="Submit", width=10, command=callback)
 				b.pack()
 				tk.mainloop()
 			elif name == "ema":
 				midIQ = tk.Tk() 
-				midIQ.wm_title("Periods")
-				label = ttk.Label(midIQ, text="Choose how many periods for the EMA")
-				label.pack(side="top", fill="x", pady=10)
+				midIQ.wm_title('Set parameter')
+				midIQ.iconbitmap("./img/widget.ico")
+				label = ttk.Label(midIQ, text="Choose a smoothing factor alpha between 0 and 1.")
+				label.pack(side="top", fill="x", pady=10, padx=10)
 				e = ttk.Entry(midIQ) 
-				e.insert(0, 10)
+				e.insert(0, 0.5)
 				e.pack()
 				e.focus_set() 
-				def callback(): 
+				def callback():
 					global midIndicators
-					global globalCounter
+					global reloadQueued
 
-					periods = (e.get())
-					group = []
-					group.append('ema')
-					group.append(int(periods))
-					midIndicators.append(group)
-					globalCounter = 9000
-					print("Middle indicators set to:",midIndicators)
-					midIQ.destroy()
+					alpha = float(e.get())
+					if alpha < 0 or alpha > 1: 
+						popupmsg("Alpha must be between 0 and 1.")
+					elif not ['ema', alpha] in midIndicators: 
+						group = []
+						group.append('ema')
+						group.append(alpha)
+						midIndicators.append(group)
+						reloadQueued = True
+						midIQ.destroy()
+					else: 
+						popupmsg("You already have that alpha.")
 
 				b = ttk.Button(midIQ, text="Submit", width=10, command=callback)
 				b.pack()
 				tk.mainloop()
-
+	else: # I.e. if the selection is "None"
+		midIndicators = "none"
+		reloadQueued = True
 
 
 
@@ -217,9 +233,10 @@ def addTopIndicator(name):
 		globalCounter = 9000
 	elif name == 'rsi': 
 		rsiQ = tk.Tk()
-		rsiQ.wm_title('Periods?')
+		rsiQ.iconbitmap("./img/widget.ico")
+		rsiQ.wm_title('Set parameter')
 		label = ttk.Label(rsiQ, text = "Choose how many periods you want each RSI calculation to consider.")
-		label.pack(side="top", fill="x", pady=10)
+		label.pack(side="top", fill="x", pady=10, padx=10)
 
 		e = ttk.Entry(rsiQ)
 		e.insert(0,14)
@@ -252,12 +269,12 @@ def addTopIndicator(name):
 def popupmsg(msg): 
 	popup = tk.Tk()
 	popup.wm_title("!")
+	popup.iconbitmap("./img/widget.ico")
 	label = ttk.Label(popup, text=msg, font=MID_FONT)
 	label.pack(side="top", fill="x", pady=10)
 	B1 = ttk.Button(popup, text="OK", command=popup.destroy)
 	B1.pack()
 	popup.mainloop()
-
 
 def animate(i): 
 	global reloadQueued
@@ -271,8 +288,22 @@ def animate(i):
 			a2.clear()
 			if len(currentTickers) == 1: 
 				d = DATAHANDLER.get_stock_df(currentTickers[0])
-				a1.plot_date(d.index, d['Adj Close'],'-', linewidth=0.5, color=COLORS[0])
-				a2.fill_between(d.index, 0,d['Volume'],color=COLORS[0])
+				if midIndicators != "none": 
+					sma_ctr = 0
+					ema_ctr = 0
+					for indicator,value in midIndicators: 
+						if indicator == "sma":
+							a1.plot_date(d.index, d['Adj Close'].rolling(value).mean(), '--',label="SMA {}".format(value), color=SMA_COLORS[sma_ctr])
+							sma_ctr += 1
+						elif indicator == "ema": 
+							a1.plot_date(d.index, d['Adj Close'].ewm(alpha=value).mean(), '--',label="EMA {}".format(value),color=EMA_COLORS[ema_ctr])
+							ema_ctr += 1
+					a1.plot_date(d.index, d['Adj Close'],'-', color=MAIN_COLORS[0],label=currentTickers[0])
+					a1.legend(bbox_to_anchor=(-0.15, 1.02,1, 0.102), loc='lower left', ncol=2, borderaxespad=0)
+					a2.fill_between(d.index, 0,d['Volume'],color=MAIN_COLORS[0])
+				else: 
+					a1.plot_date(d.index, d['Adj Close'],'-', color=MAIN_COLORS[0])
+					a2.fill_between(d.index, 0,d['Volume'],color=MAIN_COLORS[0])
 				title = "".join(currentTickers)
 				a1.set_title(title)
 			else: 
@@ -287,7 +318,7 @@ def animate(i):
 					if not colorIndex < len(COLORS): # If we're out of pre-chosen colors, randomize one
 						color = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)])]
 					else:
-						color = COLORS[colorIndex]
+						color = MAIN_COLORS[colorIndex]
 						colorIndex += 1
 					d = DATAHANDLER.get_stock_df(ticker)
 					a1.plot_date(d.index, d['Adj Close'],'-', linewidth=0.5, label=ticker,color=color)
@@ -297,8 +328,12 @@ def animate(i):
 				a1.legend(bbox_to_anchor=(0, 1.02,1, 0.102), loc=3, ncol=2, borderaxespad=0)
 			a1.xaxis.set_major_locator(mticker.MaxNLocator(5))
 			a1.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+			a1.yaxis.tick_right()
+			a2.set_title('VOLUME', rotation=90,x=-0.02, y=0, fontsize=8)
+			a2.yaxis.set_ticks([])
 			plt.xticks(rotation=20)
 			plt.setp(a1.get_xticklabels(), visible=False)
+			plt.setp(a2.get_yticklabels(), visible=False)
 			reloadQueued = False
 
 
@@ -365,7 +400,6 @@ class DataHandler():
 				df = df.append(append_df)
 				df.index = pd.to_datetime(df.index)
 				df.to_csv(single_path)
-				return df
 			elif delta_hours > 0: 
 				# If 'end'-time is less than 24h ahead, do the same but convert to date
 				try: 
@@ -376,7 +410,6 @@ class DataHandler():
 					df.to_csv(single_path)
 				except KeyError: 	
 					print("Didn't find new data for {}.".format(ticker))
-				return df
 
 	def get_stock_df(self, ticker): 
 		path = self.stock_path / "".join([ticker, ".csv"])
@@ -384,7 +417,7 @@ class DataHandler():
 			self.download_single_stock(ticker)
 		df = pd.read_csv(path, index_col=0)
 		df.index = pd.to_datetime(df.index)
-		return df
+		return df[startDate : endDate]
 
 	def get_all_tickers(self): 
 		return self.tickers
@@ -415,17 +448,8 @@ class AnalyticGUI(tk.Tk):
 		filemenu.add_command(label="Exit", command=self.exit_routine)
 		menubar.add_cascade(label="File", menu=filemenu)
 
-		exchangeChoice = tk.Menu(menubar, tearoff=1)
-		exchangeChoice.add_command(label="Label 1", command=lambda: changeExchange("EX1", "ex1"))
-		exchangeChoice.add_command(label="Label 2", command=lambda: changeExchange("EX2", "ex2"))
-		exchangeChoice.add_command(label="Label 3", command=lambda: changeExchange("EX3", "ex3"))
-		exchangeChoice.add_command(label="Label 4", command=lambda: changeExchange("EX4", "ex4"))
 
-		menubar.add_cascade(label="Exchange", menu=exchangeChoice)
-
-		dataTF = tk.Menu(menubar, tearoff=1)
-		dataTF.add_command(label="1 day", command=lambda: changeTimeFrame('1d'))
-		dataTF.add_command(label="3 days", command=lambda: changeTimeFrame('3d'))
+		dataTF = tk.Menu(menubar, tearoff=0)
 		dataTF.add_command(label="1 week", command=lambda: changeTimeFrame('7d'))
 		dataTF.add_command(label="1 month", command=lambda: changeTimeFrame('1m'))
 		dataTF.add_command(label="6 months", command=lambda: changeTimeFrame('6m'))
@@ -435,21 +459,21 @@ class AnalyticGUI(tk.Tk):
 
 		menubar.add_cascade(label="Time Frame", menu=dataTF)
 
-		topIndi = tk.Menu(menubar, tearoff=1)
+		topIndi = tk.Menu(menubar, tearoff=0)
 		topIndi.add_command(label="None", command=lambda: addTopIndicator('none'))
 		topIndi.add_command(label="RSI", command=lambda: addTopIndicator('rsi'))
 		topIndi.add_command(label="MACD", command=lambda: addTopIndicator('macd'))
 
 		menubar.add_cascade(label="Top Indicators", menu=topIndi)
 
-		midIndi = tk.Menu(menubar, tearoff=1)
+		midIndi = tk.Menu(menubar, tearoff=0)
 		midIndi.add_command(label="None", command=lambda: addMidIndicators('none'))
-		midIndi.add_command(label="SMA", command=lambda: addMidIndicators('sma'))
-		midIndi.add_command(label="EMA", command=lambda: addMidIndicators('ema'))
+		midIndi.add_command(label="Simple Moving Average", command=lambda: addMidIndicators('sma'))
+		midIndi.add_command(label="Exponential Moving Average", command=lambda: addMidIndicators('ema'))
 
 		menubar.add_cascade(label="Mid Indicators", menu=midIndi)
 
-		bottomIndi = tk.Menu(menubar, tearoff=1)
+		bottomIndi = tk.Menu(menubar, tearoff=0)
 		bottomIndi.add_command(label="None", command=lambda: addBottomIndicator('none'))
 		bottomIndi.add_command(label="RSI", command=lambda: addBottomIndicator('rsi'))
 		bottomIndi.add_command(label="MACD", command=lambda: addBottomIndicator('macd'))
@@ -467,8 +491,8 @@ class AnalyticGUI(tk.Tk):
 			self.frames[F] = frame
 			frame.grid(row=0,column=0,sticky="nsew")
 
-		self.show_frame(StartPage)
-		# self.show_frame(DashboardPage)	# Just for development
+		# self.show_frame(StartPage)
+		self.show_frame(DashboardPage)	# Just for development
 		self.geometry("900x600+200+40")
 
 
@@ -558,7 +582,6 @@ class DashboardPage(tk.Frame):
 			except Exception as e: 
 				pass
 
-
 		plotButton = ttk.Button(widgetBox, text="Plot", command=plot_single)
 		plotButton.grid(row=1, column=0, sticky="n")
 
@@ -566,11 +589,9 @@ class DashboardPage(tk.Frame):
 		addPlotButton.grid(row=1, column=1, sticky="n")
 
 		homebutton = ttk.Button(widgetBox, text= 'Home', command=lambda: controller.show_frame(HomePage))
-		homebutton.grid(row=3, column=2, sticky="s")
-		
+		homebutton.grid(row=3, column=2, sticky="s")		
 
 		widgetBox.pack(side="left", fill="both", expand=True)
-
 
 		canvas = FigureCanvasTkAgg(f, self)
 		canvas.draw() 
